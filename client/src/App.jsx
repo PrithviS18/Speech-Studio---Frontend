@@ -18,7 +18,7 @@ export default function App() {
     const socket = socketRef.current;
 
     socket.on("connect", () => console.log("Connected:", socket.id));
-    socket.on("transcription_ready", () => startMicStreaming());
+    // socket.on("transcription_ready", () => startMicStreaming());
     socket.on("transcript", (data) => setLiveText(data.transcript));
     socket.on("transcript_final", (data) => {
       setFinalText((prev) => prev + " " + data.transcript);
@@ -36,26 +36,55 @@ export default function App() {
     finalRef.current?.scrollTo(0, finalRef.current.scrollHeight);
   }, [finalText]);
 
-  const startRecording = () => {
-    socketRef.current.emit("start_transcription");
-    setIsRecording(true);
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      let options = {};
+      if (MediaRecorder.isTypeSupported("audio/webm")) {
+        options.mimeType = "audio/webm";
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          socketRef.current.emit("audio_chunk", event.data);
+        }
+      };
+
+      mediaRecorder.start(250);
+
+      socketRef.current.emit("start_transcription");
+      setIsRecording(true);
+    } catch (err) {
+      console.error(err);
+      alert("Mic permission denied or not supported");
+    }
   };
 
   const stopRecording = () => {
     socketRef.current.emit("stop_transcription");
+
     mediaRecorderRef.current?.stop();
+
+    // stop mic completely (important)
+    const tracks = mediaRecorderRef.current?.stream?.getTracks();
+    tracks?.forEach((track) => track.stop());
+
     setIsRecording(false);
   };
 
-  const startMicStreaming = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-    mediaRecorderRef.current = mediaRecorder;
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) socketRef.current.emit("audio_chunk", event.data);
-    };
-    mediaRecorder.start(250);
-  };
+  // const startMicStreaming = async () => {
+  //   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  //   const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+  //   mediaRecorderRef.current = mediaRecorder;
+  //   mediaRecorder.ondataavailable = (event) => {
+  //     if (event.data.size > 0) socketRef.current.emit("audio_chunk", event.data);
+  //   };
+  //   mediaRecorder.start(250);
+  // };
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8"
